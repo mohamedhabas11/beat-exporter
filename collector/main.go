@@ -53,6 +53,7 @@ func NewMainCollector(client *http.Client, url *url.URL, name string, beatInfo *
 		systemBeat: systemBeat,
 	}
 
+	// Add specific collectors based on the beat type
 	beat.Collectors["system"] = NewSystemCollector(beatInfo, beat.Stats)
 	beat.Collectors["beat"] = NewBeatCollector(beatInfo, beat.Stats)
 	beat.Collectors["libbeat"] = NewLibBeatCollector(beatInfo, beat.Stats)
@@ -73,7 +74,7 @@ func (b *mainCollector) Describe(ch chan<- *prometheus.Desc) {
 		ch <- metric.desc
 	}
 
-	// standard collectors for all types of beats
+	// Describe the standard collectors
 	if b.systemBeat {
 		b.Collectors["system"].Describe(ch)
 	}
@@ -81,7 +82,7 @@ func (b *mainCollector) Describe(ch chan<- *prometheus.Desc) {
 	b.Collectors["libbeat"].Describe(ch)
 	b.Collectors["auditd"].Describe(ch)
 
-	// Customized collectors per beat type
+	// Handle custom collectors based on beat type
 	switch b.beatInfo.Beat {
 	case "filebeat":
 		b.Collectors["filebeat"].Describe(ch)
@@ -89,27 +90,25 @@ func (b *mainCollector) Describe(ch chan<- *prometheus.Desc) {
 	case "metricbeat":
 		b.Collectors["metricbeat"].Describe(ch)
 	}
-
 }
 
 // Collect returns the current state of all metrics of the collector.
 func (b *mainCollector) Collect(ch chan<- prometheus.Metric) {
-
 	err := b.fetchStatsEndpoint()
 	if err != nil {
-		ch <- prometheus.MustNewConstMetric(b.targetUp, prometheus.GaugeValue, float64(0)) // set target down
+		ch <- prometheus.MustNewConstMetric(b.targetUp, prometheus.GaugeValue, float64(0)) // Set target down
 		log.Errorf("Failed getting /stats endpoint of target: " + err.Error())
 		return
 	}
 
 	ch <- prometheus.MustNewConstMetric(b.targetDesc, prometheus.GaugeValue, float64(1))
-	ch <- prometheus.MustNewConstMetric(b.targetUp, prometheus.GaugeValue, float64(1)) // target up
+	ch <- prometheus.MustNewConstMetric(b.targetUp, prometheus.GaugeValue, float64(1)) // Set target up
 
 	for _, i := range b.metrics {
 		ch <- prometheus.MustNewConstMetric(i.desc, i.valType, i.eval(b.Stats))
 	}
 
-	// standard collectors for all types of beats
+	// Collect metrics from standard collectors
 	if b.systemBeat {
 		b.Collectors["system"].Collect(ch)
 	}
@@ -117,7 +116,7 @@ func (b *mainCollector) Collect(ch chan<- prometheus.Metric) {
 	b.Collectors["libbeat"].Collect(ch)
 	b.Collectors["auditd"].Collect(ch)
 
-	// Customized collectors per beat type
+	// Handle custom collectors per beat type
 	switch b.beatInfo.Beat {
 	case "filebeat":
 		b.Collectors["filebeat"].Collect(ch)
@@ -125,17 +124,15 @@ func (b *mainCollector) Collect(ch chan<- prometheus.Metric) {
 	case "metricbeat":
 		b.Collectors["metricbeat"].Collect(ch)
 	}
-
 }
 
+// fetchStatsEndpoint fetches the stats endpoint for the Beat.
 func (b *mainCollector) fetchStatsEndpoint() error {
-
 	response, err := b.client.Get(b.beatURL.String() + "/stats")
 	if err != nil {
 		log.Errorf("Could not fetch stats endpoint of target: %v", b.beatURL.String())
 		return err
 	}
-
 	defer response.Body.Close()
 
 	bodyBytes, err := ioutil.ReadAll(response.Body)
@@ -144,7 +141,7 @@ func (b *mainCollector) fetchStatsEndpoint() error {
 		return err
 	}
 
-	// @TODO remove this when filebeat stats endpoint output matches all other beats output
+	// Apply a regex fix specifically for Filebeat
 	bodyBytes = HackfixRegex.ReplaceAll(bodyBytes, []byte("\"time\":{\"ms\":$1}"))
 
 	err = json.Unmarshal(bodyBytes, &b.Stats)

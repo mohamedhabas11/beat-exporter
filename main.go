@@ -33,8 +33,8 @@ func main() {
 		tlsCertFile   = flag.String("tls.certfile", "", "TLS certs file if you want to use tls instead of http")
 		tlsKeyFile    = flag.String("tls.keyfile", "", "TLS key file if you want to use tls instead of http")
 		metricsPath   = flag.String("web.telemetry-path", "/metrics", "Path under which to expose metrics.")
-		beatURI       = flag.String("beat.uri", "http://localhost:5066", "HTTP API address of beat.")
-		beatTimeout   = flag.Duration("beat.timeout", 10*time.Second, "Timeout for trying to get stats from beat.")
+		beatURIs      = flag.String("beat.uris", "http://localhost:5066", "Comma-separated list of HTTP API addresses of Beats.")
+		beatTimeout   = flag.Duration("beat.timeout", 10*time.Second, "Timeout for trying to get stats from Beats.")
 		showVersion   = flag.Bool("version", false, "Show version and exit")
 		systemBeat    = flag.Bool("beat.system", false, "Expose system stats")
 	)
@@ -53,35 +53,17 @@ func main() {
 		},
 	})
 
-	beatURL, err := url.Parse(*beatURI)
+	// Parse the comma-separated list of Beat URIs
+	beatURLList := strings.Split(*beatURIs, ",")
 
-	if err != nil {
-		log.Fatalf("failed to parse beat.uri, error: %v", err)
-	}
-
+	// Create a single httpClient to be reused
 	httpClient := &http.Client{
 		Timeout: *beatTimeout,
 	}
 
-	if beatURL.Scheme == "unix" {
-		unixPath := beatURL.Path
-		beatURL.Scheme = "http"
-		beatURL.Host = "localhost"
-		beatURL.Path = ""
-		httpClient.Transport = &http.Transport{
-			DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
-				return (&net.Dialer{}).DialContext(ctx, "unix", unixPath)
-			},
-		}
-	}
-
-	log.Info("Exploring target for beat type")
-
-	var beatInfo *collector.BeatInfo
-
+	// Setup HTTP handling
 	stopCh := make(chan bool)
-
-	err = service.SetupServiceListener(stopCh, serviceName, log.StandardLogger())
+	err := service.SetupServiceListener(stopCh, serviceName, log.StandardLogger())
 	if err != nil {
 		log.WithFields(log.Fields{
 			"err": err,
@@ -90,45 +72,72 @@ func main() {
 
 	t := time.NewTicker(1 * time.Second)
 
-beatdiscovery:
-	for {
-		select {
-		case <-t.C:
-			beatInfo, err = loadBeatType(httpClient, *beatURL)
-			if err != nil {
-				log.Errorf("Could not load beat type, with error: %v, retrying in 1s", err)
-				continue
-			}
-
-			break beatdiscovery
-
-		case <-stopCh:
-			os.Exit(0) // signal received, stop gracefully
-		}
-	}
-
-	t.Stop()
-
 	// version metric
 	registry := prometheus.NewRegistry()
 	versionMetric := version.NewCollector(Name)
-	mainCollector := collector.NewMainCollector(httpClient, beatURL, Name, beatInfo, *systemBeat)
 	registry.MustRegister(versionMetric)
-	registry.MustRegister(mainCollector)
+
+	for _, beatURI := range beatURLList {
+		beatURL, err := url.Parse(beatURI)
+		if err != nil {
+			log.Fatalf("failed to parse beat.uri: %v, error: %v", beatURI, err)
+		}
+
+		// If Unix socket scheme is detected, adjust transport
+		if beatURL.Scheme == "unix" {
+			unixPath := beatURL.Path
+			beatURL.Scheme = "http"
+			beatURL.Host = "localhost"
+			beatURL.Path = ""
+			httpClient.Transport = &http.Transport{
+				DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+					return (&net.Dialer{}).DialContext(ctx, "unix", unixPath)
+				},
+			}
+		}
+
+		log.Infof("Exploring target for beat type at %v", beatURI)
+
+		var beatInfo *collector.BeatInfo
+
+		// Loop to discover the beat type, handle errors
+	beatdiscovery:
+		for {
+			select {
+			case <-t.C:
+				beatInfo, err = loadBeatType(httpClient, *beatURL)
+				if err != nil {
+					log.Errorf("Could not load beat type for %v, retrying in 1s: %v", beatURI, err)
+					continue
+				}
+				break beatdiscovery
+
+			case <-stopCh:
+				os.Exit(0) // signal received, stop gracefully
+			}
+		}
+
+		// Register the collector for each discovered Beat
+		mainCollector := collector.NewMainCollector(httpClient, beatURL, Name, beatInfo, *systemBeat)
+		registry.MustRegister(mainCollector)
+	}
+
+	t.Stop() // Stop the ticker once beat discovery is done
 
 	http.Handle(*metricsPath, promhttp.HandlerFor(
 		registry,
 		promhttp.HandlerOpts{
 			ErrorLog:           log.New(),
 			DisableCompression: false,
-			ErrorHandling:      promhttp.ContinueOnError}),
+			ErrorHandling:      promhttp.ContinueOnError,
+		}),
 	)
 
 	http.HandleFunc("/", IndexHandler(*metricsPath))
 
 	log.WithFields(log.Fields{
 		"addr": *listenAddress,
-	}).Infof("Starting exporter with configured type: %s", beatInfo.Beat)
+	}).Infof("Starting exporter with Beat URIs: %v", *beatURIs)
 
 	go func() {
 		defer func() {
@@ -138,19 +147,15 @@ beatdiscovery:
 		log.Info("Starting listener")
 		if *tlsCertFile != "" && *tlsKeyFile != "" {
 			if err := http.ListenAndServeTLS(*listenAddress, *tlsCertFile, *tlsKeyFile, nil); err != nil {
-
 				log.WithFields(log.Fields{
 					"err": err,
-				}).Errorf("tls server quit with error: %v", err)
-
+				}).Errorf("TLS server quit with error: %v", err)
 			}
 		} else {
 			if err := http.ListenAndServe(*listenAddress, nil); err != nil {
-
 				log.WithFields(log.Fields{
 					"err": err,
-				}).Errorf("http server quit with error: %v", err)
-
+				}).Errorf("HTTP server quit with error: %v", err)
 			}
 		}
 		log.Info("Listener exited")
@@ -197,8 +202,8 @@ func loadBeatType(client *http.Client, url url.URL) (*collector.BeatInfo, error)
 	defer response.Body.Close()
 
 	if response.StatusCode != http.StatusOK {
-		log.Errorf("Beat URL: %q status code: %d", url.String(), response.StatusCode)
-		return beatInfo, err
+		log.Errorf("Beat URL: %q returned status code: %d", url.String(), response.StatusCode)
+		return beatInfo, fmt.Errorf("received non-200 response: %d", response.StatusCode)
 	}
 
 	bodyBytes, err := ioutil.ReadAll(response.Body)

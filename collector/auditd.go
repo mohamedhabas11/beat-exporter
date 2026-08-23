@@ -4,7 +4,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 )
 
-//AuditdInfo json structure
+// AuditdInfo json structure
 type AuditdStats struct {
 	KernelLost         float64 `json:"kernel_lost"`
 	ReassemblerSeqGaps float64 `json:"reassembler_seq_gaps"`

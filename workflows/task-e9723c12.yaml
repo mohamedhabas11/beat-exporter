@@ -1,0 +1,34 @@
+name: task-e9723c12
+path: ""
+nodes:
+    - id: start
+      kind: channel
+      channels: []
+      produces: []
+      run: ""
+      prompt: ""
+      tier: ""
+      tags: []
+    - id: work-e9723c12
+      kind: default
+      channels: []
+      produces: []
+      run: ( cat .github/workflows/push.yml | head -n 20 ) && ( grep -q 'setup-go@v5' .github/workflows/push.yml && grep -q 'checkout@v4' .github/workflows/push.yml && echo ok )
+      prompt: ""
+      tier: ""
+      tags:
+        - revival
+        - ci
+    - id: done
+      kind: channel
+      channels: []
+      produces: []
+      run: ""
+      prompt: ""
+      tier: ""
+      tags: []
+edges:
+    - from: start
+      to: work-e9723c12
+    - from: work-e9723c12
+      to: done

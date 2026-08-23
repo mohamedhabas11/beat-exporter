@@ -3,7 +3,7 @@ package collector
 import (
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -26,7 +26,7 @@ type mainCollector struct {
 }
 
 // HackfixRegex regex to replace JSON part
-var HackfixRegex = regexp.MustCompile("\"time\":(\\d+)") // replaces time:123 to time.ms:123, only filebeat has different naming of time metric
+var HackfixRegex = regexp.MustCompile(`"time"\s*:\s*(\d+)`) // replaces time:123 to time.ms:123, only filebeat has different naming of time metric; whitespace-tolerant
 
 // NewMainCollector constructor
 func NewMainCollector(client *http.Client, url *url.URL, name string, beatInfo *BeatInfo, systemBeat bool) prometheus.Collector {
@@ -135,7 +135,7 @@ func (b *mainCollector) fetchStatsEndpoint() error {
 	}
 	defer response.Body.Close()
 
-	bodyBytes, err := ioutil.ReadAll(response.Body)
+	bodyBytes, err := io.ReadAll(response.Body)
 	if err != nil {
 		log.Error("Can't read body of response")
 		return err

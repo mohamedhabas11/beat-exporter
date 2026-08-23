@@ -4,13 +4,13 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 )
 
-//MetricbeatEvent json structure
+// MetricbeatEvent json structure
 type MetricbeatEvent struct {
 	Failures float64 `json:"failures"`
 	Success  float64 `json:"success"`
 }
 
-//Metricbeat json structure
+// Metricbeat json structure
 type Metricbeat struct {
 	System struct {
 		CPU            MetricbeatEvent `json:"cpu"`

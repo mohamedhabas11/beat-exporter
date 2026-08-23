@@ -6,7 +6,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 )
 
-//CPUTimings json structure
+// CPUTimings json structure
 type CPUTimings struct {
 	Ticks float64 `json:"ticks"`
 	Time  struct {
@@ -15,7 +15,7 @@ type CPUTimings struct {
 	Value float64 `json:"value"`
 }
 
-//BeatStats json structure
+// BeatStats json structure
 type BeatStats struct {
 	CPU struct {
 		System CPUTimings `json:"system"`

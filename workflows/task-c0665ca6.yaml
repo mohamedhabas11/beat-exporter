@@ -1,0 +1,34 @@
+name: task-c0665ca6
+path: ""
+nodes:
+    - id: start
+      kind: channel
+      channels: []
+      produces: []
+      run: ""
+      prompt: ""
+      tier: ""
+      tags: []
+    - id: work-c0665ca6
+      kind: default
+      channels: []
+      produces: []
+      run: ( go test ./... 2>&1 | head ) && ( grep -q 'libbeatOutputType' collector/libbeat.go && ! grep -q 'var libbeatOutputType' collector/libbeat.go && echo ok )
+      prompt: ""
+      tier: ""
+      tags:
+        - revival
+        - reliability
+    - id: done
+      kind: channel
+      channels: []
+      produces: []
+      run: ""
+      prompt: ""
+      tier: ""
+      tags: []
+edges:
+    - from: start
+      to: work-c0665ca6
+    - from: work-c0665ca6
+      to: done

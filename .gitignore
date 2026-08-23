@@ -1,7 +1,7 @@
-vendor
+.DS_Store
 .build
 .release
 .vscode
-.DS_Store
 beat-exporter
-beat-exporter.exe
+beat-exporter.exe.ward/
+vendor

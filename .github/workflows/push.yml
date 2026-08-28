@@ -32,6 +32,7 @@ jobs:
         with:
           name: binaries
           path: .build
+          include-hidden-files: true
           if-no-files-found: error
 
   docker:

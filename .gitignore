@@ -1,6 +1,6 @@
 .DS_Store
 .build
-.release
+release/
 .vscode
 /beat-exporter
 /beat-exporter.exe

@@ -2,6 +2,7 @@
 .build
 .release
 .vscode
-beat-exporter
-beat-exporter.exe.ward/
+/beat-exporter
+/beat-exporter.exe
+.ward/
 vendor

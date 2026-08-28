@@ -1,18 +1,16 @@
 //go:build linux || darwin
-// +build linux darwin
 
 package service
 
 import (
+	stdlog "log"
 	"os"
 	"os/signal"
 	"syscall"
-
-	log "github.com/sirupsen/logrus"
 )
 
 // SetupServiceListener setups singal handler
-func SetupServiceListener(stopCh chan<- bool, serviceName string, logger log.StdLogger) error {
+func SetupServiceListener(stopCh chan<- bool, serviceName string, logger *stdlog.Logger) error {
 	go func() {
 		sigs := make(chan os.Signal, 1)
 		signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM, syscall.SIGKILL, syscall.SIGHUP)

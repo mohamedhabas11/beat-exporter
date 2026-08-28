@@ -4,8 +4,9 @@
 package service
 
 import (
-	"fmt"
-	log "github.com/sirupsen/logrus"
+	stdlog "log"
+	"log/slog"
+
 	"golang.org/x/sys/windows/svc"
 )
 
@@ -28,7 +29,7 @@ loop:
 				s.stopCh <- true
 				break loop
 			default:
-				log.Error(fmt.Sprintf("unexpected control request #%d", c))
+				slog.Error("unexpected control request", "code", c.Cmd)
 			}
 		}
 	}
@@ -37,7 +38,7 @@ loop:
 }
 
 // SetupServiceListener setups service handler for windows
-func SetupServiceListener(stopCh chan<- bool, serviceName string, logger log.StdLogger) error {
+func SetupServiceListener(stopCh chan<- bool, serviceName string, logger *stdlog.Logger) error {
 	isInteractive, err := svc.IsAnInteractiveSession()
 	if err != nil {
 		return err

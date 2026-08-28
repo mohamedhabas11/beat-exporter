@@ -19,7 +19,7 @@ import (
 	collectorsVersion "github.com/prometheus/client_golang/prometheus/collectors/version"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	promVersion "github.com/prometheus/common/version"
-	log "github.com/sirupsen/logrus"
+	"log/slog"
 	"github.com/trustpilot/beat-exporter/collector"
 )
 
@@ -45,13 +45,20 @@ func main() {
 		os.Exit(0)
 	}
 
-	// Configure logging
-	log.SetLevel(log.InfoLevel)
-	log.SetFormatter(&log.JSONFormatter{
-		FieldMap: log.FieldMap{
-			log.FieldKeyMsg: "message",
+	// Configure structured JSON logging via slog, keeping the "message" key
+	// used by the previous logrus JSON formatter.
+	loggerOpts := &slog.HandlerOptions{
+		Level: slog.LevelInfo,
+		ReplaceAttr: func(groups []string, a slog.Attr) slog.Attr {
+			if a.Key == slog.MessageKey {
+				a.Key = "message"
+			}
+			return a
 		},
-	})
+	}
+	jsonHandler := slog.NewJSONHandler(os.Stdout, loggerOpts)
+	slog.SetDefault(slog.New(jsonHandler))
+	promhttpErrorLog := slog.NewLogLogger(jsonHandler, slog.LevelError)
 
 	// Parse the comma-separated list of Beat URIs
 	beatURLList := strings.Split(*beatURIs, ",")
@@ -70,14 +77,14 @@ func main() {
 			continue
 		}
 		if err := discoverBeatType(httpClient, trimmed, registry, *systemBeat); err != nil {
-			log.Warnf("Failed to discover beat type at %s: %v", trimmed, err)
+			slog.Warn("Failed to discover beat type", "uri", trimmed, "error", err)
 		}
 	}
 
 	// Setup Prometheus metrics endpoint with a dedicated mux (no global DefaultServeMux)
 	mux := http.NewServeMux()
 	mux.Handle(*metricsPath, promhttp.HandlerFor(registry, promhttp.HandlerOpts{
-		ErrorLog:           log.New(),
+		ErrorLog:           promhttpErrorLog,
 		DisableCompression: false,
 		ErrorHandling:      promhttp.ContinueOnError,
 	}))
@@ -96,7 +103,7 @@ func main() {
 	signal.Notify(stopCh, syscall.SIGINT, syscall.SIGTERM)
 
 	go func() {
-		log.Infof("Starting exporter at %s", *listenAddress)
+		slog.Info("Starting exporter", "address", *listenAddress)
 		var err error
 		if *tlsCertFile != "" && *tlsKeyFile != "" {
 			err = server.ListenAndServeTLS(*tlsCertFile, *tlsKeyFile)
@@ -104,18 +111,19 @@ func main() {
 			err = server.ListenAndServe()
 		}
 		if err != nil && err != http.ErrServerClosed {
-			log.Fatalf("HTTP server error: %v", err)
+			slog.Error("HTTP server error", "error", err)
+			os.Exit(1)
 		}
 	}()
 
 	<-stopCh
-	log.Info("Shutting down gracefully...")
+	slog.Info("Shutting down gracefully...")
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if err := server.Shutdown(ctx); err != nil {
-		log.Errorf("Server shutdown error: %v", err)
+		slog.Error("Server shutdown error", "error", err)
 	}
-	log.Info("Exporter stopped gracefully")
+	slog.Info("Exporter stopped gracefully")
 }
 
 // discoverBeatType attempts to load Beat info from a given URI and registers the collector if successful.
@@ -149,7 +157,7 @@ func discoverBeatType(client *http.Client, beatURI string, registry *prometheus.
 		}
 	}
 
-	log.Infof("Trying to discover beat type at %s", beatURI)
+	slog.Info("Trying to discover beat type", "uri", beatURI)
 	beatInfo, err := loadBeatType(beatClient, *beatURL)
 	if err != nil {
 		return err // If it fails, return the error
@@ -159,7 +167,7 @@ func discoverBeatType(client *http.Client, beatURI string, registry *prometheus.
 	mainCollector := collector.NewMainCollector(beatClient, beatURL, serviceName, beatInfo, systemBeat)
 	registry.MustRegister(mainCollector)
 
-	log.Infof("Beat type loaded successfully from %s", beatURI)
+	slog.Info("Beat type loaded successfully", "uri", beatURI)
 	return nil
 }
 
@@ -214,20 +222,22 @@ func loadBeatType(client *http.Client, url url.URL) (*collector.BeatInfo, error)
 		return nil, err
 	}
 
-	log.Infof("Target beat loaded: %v", beatInfo)
+	slog.Info("Target beat loaded", "beatInfo", beatInfo)
 	return &beatInfo, nil
 }
 
 // startHTTPServer starts the HTTP server for Prometheus metrics.
 func startHTTPServer(listenAddress, tlsCertFile, tlsKeyFile string) {
-	log.Infof("Starting exporter at %s", listenAddress)
+	slog.Info("Starting exporter", "address", listenAddress)
 	if tlsCertFile != "" && tlsKeyFile != "" {
 		if err := http.ListenAndServeTLS(listenAddress, tlsCertFile, tlsKeyFile, nil); err != nil {
-			log.Fatalf("TLS server error: %v", err)
+			slog.Error("TLS server error", "error", err)
+			os.Exit(1)
 		}
 	} else {
 		if err := http.ListenAndServe(listenAddress, nil); err != nil {
-			log.Fatalf("HTTP server error: %v", err)
+			slog.Error("HTTP server error", "error", err)
+			os.Exit(1)
 		}
 	}
 }

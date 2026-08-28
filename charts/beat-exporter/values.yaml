@@ -1,0 +1,80 @@
+# Default values for beat-exporter.
+# See readme.md for the full flag reference.
+
+replicaCount: 1
+
+image:
+  repository: ghcr.io/mohamedhabas11/beat-exporter
+  # Overrides the image tag whose default is the chart appVersion.
+  tag: ""
+  pullPolicy: IfNotPresent
+
+# beat-exporter command-line flags.
+beat:
+  # Comma-separated list of Beat HTTP API addresses. Supports http://, https://
+  # and unix:// (e.g. "http://localhost:5066,unix:///var/run/filebeat.sock").
+  uris: "http://localhost:5066"
+  # Expose system stats (load, cpu cores) from Beat's /stats.
+  system: false
+  # Timeout for trying to get stats from beat.
+  timeout: 10s
+
+service:
+  type: ClusterIP
+  port: 9479
+  # Port name used by the ServiceMonitor selector.
+  portName: metrics
+
+imagePullSecrets: []
+#  - name: my-registry-secret
+
+serviceAccount:
+  # Specifies whether a service account should be created.
+  create: true
+  # Annotations to add to the service account.
+  annotations: {}
+  # The name of the service account. Generated if not set.
+  name: ""
+
+# Prometheus Operator integration. Set true to scrape /metrics automatically.
+serviceMonitor:
+  enabled: false
+  # Scrape interval for the ServiceMonitor.
+  interval: 30s
+  # Scrape timeout for the ServiceMonitor.
+  scrapeTimeout: 10s
+  # Additional labels for the ServiceMonitor (e.g. release: kube-prometheus).
+  labels: {}
+  # Namespace override for the ServiceMonitor (defaults to release namespace).
+  namespace: ""
+
+podAnnotations: {}
+podLabels: {}
+
+resources: {}
+  # limits:
+  #   cpu: 100m
+  #   memory: 64Mi
+  # requests:
+  #   cpu: 50m
+  #   memory: 32Mi
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65532
+  runAsGroup: 65532
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  runAsNonRoot: true
+  runAsUser: 65532
+  capabilities:
+    drop:
+      - ALL

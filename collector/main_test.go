@@ -343,6 +343,60 @@ func TestAuditdCollector(t *testing.T) {
 	}
 }
 
+func TestHeartbeatCollector(t *testing.T) {
+	beatInfo := &BeatInfo{Beat: "heartbeat", Version: "8.0.0"}
+	stats := &Stats{}
+	stats.Heartbeat.Monitors.Active = 3
+	stats.Heartbeat.Monitors.Total = 7
+	c := NewHeartbeatCollector(beatInfo, stats)
+	reg := prometheus.NewRegistry()
+	reg.MustRegister(c)
+	mfs, err := reg.Gather()
+	if err != nil {
+		t.Fatalf("gather: %v", err)
+	}
+	if len(mfs) == 0 {
+		t.Fatal("no metrics")
+	}
+	found := false
+	for _, mf := range mfs {
+		if mf.GetName() == "heartbeat_heartbeat_monitors_active" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("heartbeat monitors_active metric not found")
+	}
+}
+
+func TestWinlogbeatCollector(t *testing.T) {
+	beatInfo := &BeatInfo{Beat: "winlogbeat", Version: "8.0.0"}
+	stats := &Stats{}
+	stats.Winlogbeat.Events.Active = 12
+	stats.Winlogbeat.Events.Total = 34
+	c := NewWinlogbeatCollector(beatInfo, stats)
+	reg := prometheus.NewRegistry()
+	reg.MustRegister(c)
+	mfs, err := reg.Gather()
+	if err != nil {
+		t.Fatalf("gather: %v", err)
+	}
+	if len(mfs) == 0 {
+		t.Fatal("no metrics")
+	}
+	found := false
+	for _, mf := range mfs {
+		if mf.GetName() == "winlogbeat_winlogbeat_events_active" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("winlogbeat events_active metric not found")
+	}
+}
+
 func TestMainCollectorForMetricbeat(t *testing.T) {
 	beatInfo := &BeatInfo{Beat: "metricbeat", Version: "8.0.0"}
 	stats := &Stats{}

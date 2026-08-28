@@ -6,6 +6,22 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 )
 
+// Heartbeat placeholder stats (stub for heartbeat beat type)
+type Heartbeat struct {
+	Monitors struct {
+		Active float64 `json:"active"`
+		Total  float64 `json:"total"`
+	} `json:"monitors"`
+}
+
+// Winlogbeat placeholder stats (stub for winlogbeat beat type)
+type Winlogbeat struct {
+	Events struct {
+		Active float64 `json:"active"`
+		Total  float64 `json:"total"`
+	} `json:"events"`
+}
+
 // CPUTimings json structure
 type CPUTimings struct {
 	Ticks float64 `json:"ticks"`

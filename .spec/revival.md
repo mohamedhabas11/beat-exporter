@@ -53,7 +53,7 @@ Incremental, each with live verification (`ward task run <id>` captures store-lo
 11. **Optional follow-up (deferred, tagged `future`)** — Heartbeat/winlogbeat collectors, OpenTelemetry exemplar, Helm chart. Not in this increment but tracked as `future` tasks so they don't block revival.
 
 ## Open questions
-- Stay on `logrus` vs migrate to std `log/slog`? Keep `logrus` for this wave (minimal churn), migrate once `slog` JSON handler parity is validated.
+- `logrus` -> std `log/slog` migration **done** (task-e4493aaf): JSON output preserved with `"message"` key parity via `slog.HandlerOptions.ReplaceAttr` renaming `slog.MessageKey`. Drop `logrus` dep; `go.mod` tidied. `promhttp` `ErrorLog` wired through `slog.NewLogLogger`.
 - Preserve module path `github.com/trustpilot/beat-exporter` or retag to `github.com/mohamedhabas11/beat-exporter`? Keep old path for drop-in replacement; add `go.mod` retag in next major if we break API.
 - Namespace stability: `BeatInfo.Beat` as dynamic namespace (`filebeat_*`, `metricbeat_*`) is unconventional but dashboard-breaking to change — keep until v2 with explicit `exporter_namespace` flag.
 - Unix socket support is implemented but untested in CI — should add `httptest` with unix listener; does packetbeat still need special casing?

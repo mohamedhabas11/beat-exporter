@@ -22,6 +22,8 @@ type Stats struct {
 	Filebeat   Filebeat    `json:"filebeat"`
 	Metricbeat Metricbeat  `json:"metricbeat"`
 	Auditd     AuditdStats `json:"auditd"`
+	Heartbeat  Heartbeat   `json:"heartbeat"`
+	Winlogbeat Winlogbeat  `json:"winlogbeat"`
 }
 
 type exportedMetrics []struct {

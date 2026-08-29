@@ -1,0 +1,22 @@
+{{- if .Values.serviceMonitor.enabled -}}
+1. Get the application URL by running these commands:
+
+{{- if contains "NodePort" .Values.service.type }}
+  export NODE_PORT=$(kubectl get --namespace {{ .Release.Namespace }} -o jsonpath="{.spec.ports[0].nodePort}" services {{ include "beat-exporter.fullname" . }})
+  export NODE_IP=$(kubectl get nodes --namespace {{ .Release.Namespace }} -o jsonpath="{.items[0].status.addresses[0].address}")
+  echo http://$NODE_IP:$NODE_PORT/metrics
+{{- else if contains "LoadBalancer" .Values.service.type }}
+  export SERVICE_IP=$(kubectl get svc --namespace {{ .Release.Namespace }} {{ include "beat-exporter.fullname" . }} -o jsonpath="{.status.loadBalancer.ingress[0].ip}")
+  echo http://$SERVICE_IP:{{ .Values.service.port }}/metrics
+{{- else if contains "ClusterIP" .Values.service.type }}
+  kubectl --namespace {{ .Release.Namespace }} port-forward svc/{{ include "beat-exporter.fullname" . }} {{ .Values.service.port }}:{{ .Values.service.port }}
+  echo "Visit http://127.0.0.1:{{ .Values.service.port }}/metrics to use the exporter"
+{{- end }}
+
+2. A ServiceMonitor has been created. Ensure Prometheus Operator selects it
+   (set serviceMonitor.labels.release to match your kube-prometheus stack).
+{{- else }}
+1. Metrics are exposed on the {{ include "beat-exporter.fullname" . }} ClusterIP
+   Service at port {{ .Values.service.port }}. Enable serviceMonitor.enabled to
+   auto-register the exporter with the Prometheus Operator.
+{{- end }}

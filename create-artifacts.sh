@@ -15,7 +15,7 @@ fi
 echo "GITHUB WORKSPACE: ${GITHUB_WORKSPACE}"
 echo "GITHUB REPO: ${GITHUB_REPOSITORY}"
 
-RELEASE_DIR=.release
+RELEASE_DIR=release
 VERSION=$(git describe --tags | cut -d '-' -f1 | cut -d 'v' -f2)
 RELEASE_FILES=LICENSE
 

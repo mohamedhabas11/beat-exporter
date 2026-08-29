@@ -4,7 +4,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 )
 
-//LibBeat json structure
+// LibBeat json structure
 type LibBeat struct {
 	Config struct {
 		Module struct {
@@ -18,7 +18,7 @@ type LibBeat struct {
 	Pipeline LibBeatPipeline `json:"pipeline"`
 }
 
-//LibBeatEvents json structure
+// LibBeatEvents json structure
 type LibBeatEvents struct {
 	Acked      float64 `json:"acked"`
 	Active     float64 `json:"active"`
@@ -31,13 +31,13 @@ type LibBeatEvents struct {
 	Retry      float64 `json:"retry"`
 }
 
-//LibBeatOutputBytesErrors json structure
+// LibBeatOutputBytesErrors json structure
 type LibBeatOutputBytesErrors struct {
 	Bytes  float64 `json:"bytes"`
 	Errors float64 `json:"errors"`
 }
 
-//LibBeatOutput json structure
+// LibBeatOutput json structure
 type LibBeatOutput struct {
 	Events LibBeatEvents            `json:"events"`
 	Read   LibBeatOutputBytesErrors `json:"read"`
@@ -45,7 +45,7 @@ type LibBeatOutput struct {
 	Type   string                   `json:"type"`
 }
 
-//LibBeatPipeline json structure
+// LibBeatPipeline json structure
 type LibBeatPipeline struct {
 	Clients float64       `json:"clients"`
 	Events  LibBeatEvents `json:"events"`
@@ -55,18 +55,23 @@ type LibBeatPipeline struct {
 }
 
 type libbeatCollector struct {
-	beatInfo *BeatInfo
-	stats    *Stats
-	metrics  exportedMetrics
+	beatInfo          *BeatInfo
+	stats             *Stats
+	metrics           exportedMetrics
+	libbeatOutputType *prometheus.Desc
 }
-
-var libbeatOutputType *prometheus.Desc
 
 // NewLibBeatCollector constructor
 func NewLibBeatCollector(beatInfo *BeatInfo, stats *Stats) prometheus.Collector {
+	outputTypeDesc := prometheus.NewDesc(
+		prometheus.BuildFQName(beatInfo.Beat, "libbeat", "output_total"),
+		"libbeat.output.type",
+		[]string{"type"}, nil,
+	)
 	return &libbeatCollector{
-		beatInfo: beatInfo,
-		stats:    stats,
+		beatInfo:          beatInfo,
+		stats:             stats,
+		libbeatOutputType: outputTypeDesc,
 		metrics: exportedMetrics{
 			{
 				desc: prometheus.NewDesc(
@@ -321,13 +326,7 @@ func (c *libbeatCollector) Describe(ch chan<- *prometheus.Desc) {
 		ch <- metric.desc
 	}
 
-	libbeatOutputType = prometheus.NewDesc(
-		prometheus.BuildFQName(c.beatInfo.Beat, "libbeat", "output_total"),
-		"libbeat.output.type",
-		[]string{"type"}, nil,
-	)
-
-	ch <- libbeatOutputType
+	ch <- c.libbeatOutputType
 
 }
 
@@ -339,6 +338,6 @@ func (c *libbeatCollector) Collect(ch chan<- prometheus.Metric) {
 	}
 
 	// output.type with dynamic label
-	ch <- prometheus.MustNewConstMetric(libbeatOutputType, prometheus.CounterValue, float64(1), c.stats.LibBeat.Output.Type)
+	ch <- prometheus.MustNewConstMetric(c.libbeatOutputType, prometheus.CounterValue, float64(1), c.stats.LibBeat.Output.Type)
 
 }

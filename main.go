@@ -16,9 +16,10 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
+	collectorsVersion "github.com/prometheus/client_golang/prometheus/collectors/version"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
-	"github.com/prometheus/common/version"
-	log "github.com/sirupsen/logrus"
+	promVersion "github.com/prometheus/common/version"
+	"log/slog"
 	"github.com/trustpilot/beat-exporter/collector"
 )
 
@@ -40,17 +41,24 @@ func main() {
 	flag.Parse()
 
 	if *showVersion {
-		fmt.Print(version.Print(serviceName))
+		fmt.Print(promVersion.Print(serviceName))
 		os.Exit(0)
 	}
 
-	// Configure logging
-	log.SetLevel(log.InfoLevel)
-	log.SetFormatter(&log.JSONFormatter{
-		FieldMap: log.FieldMap{
-			log.FieldKeyMsg: "message",
+	// Configure structured JSON logging via slog, keeping the "message" key
+	// used by the previous logrus JSON formatter.
+	loggerOpts := &slog.HandlerOptions{
+		Level: slog.LevelInfo,
+		ReplaceAttr: func(groups []string, a slog.Attr) slog.Attr {
+			if a.Key == slog.MessageKey {
+				a.Key = "message"
+			}
+			return a
 		},
-	})
+	}
+	jsonHandler := slog.NewJSONHandler(os.Stdout, loggerOpts)
+	slog.SetDefault(slog.New(jsonHandler))
+	promhttpErrorLog := slog.NewLogLogger(jsonHandler, slog.LevelError)
 
 	// Parse the comma-separated list of Beat URIs
 	beatURLList := strings.Split(*beatURIs, ",")
@@ -58,68 +66,108 @@ func main() {
 	// Create a reusable HTTP client
 	httpClient := &http.Client{Timeout: *beatTimeout}
 
+	// Prometheus registry
+	registry := prometheus.NewRegistry()
+	registry.MustRegister(collectorsVersion.NewCollector(serviceName))
+
+	// Discover Beat types
+	for _, beatURI := range beatURLList {
+		trimmed := strings.TrimSpace(beatURI)
+		if trimmed == "" {
+			continue
+		}
+		if err := discoverBeatType(httpClient, trimmed, registry, *systemBeat); err != nil {
+			slog.Warn("Failed to discover beat type", "uri", trimmed, "error", err)
+		}
+	}
+
+	// Setup Prometheus metrics endpoint with a dedicated mux (no global DefaultServeMux)
+	mux := http.NewServeMux()
+	mux.Handle(*metricsPath, promhttp.HandlerFor(registry, promhttp.HandlerOpts{
+		ErrorLog:           promhttpErrorLog,
+		DisableCompression: false,
+		ErrorHandling:      promhttp.ContinueOnError,
+	}))
+	mux.HandleFunc("/", indexHandler(*metricsPath))
+	mux.HandleFunc("/health", healthHandler)
+	mux.HandleFunc("/-/healthy", healthHandler)
+	mux.HandleFunc("/-/ready", healthHandler)
+
+	server := &http.Server{
+		Addr:    *listenAddress,
+		Handler: mux,
+	}
+
 	// Setup signal handling for graceful shutdown
 	stopCh := make(chan os.Signal, 1)
 	signal.Notify(stopCh, syscall.SIGINT, syscall.SIGTERM)
 
-	// Prometheus registry
-	registry := prometheus.NewRegistry()
-	registry.MustRegister(version.NewCollector(serviceName))
-
-	// Discover Beat types
-	for _, beatURI := range beatURLList {
-		if err := discoverBeatType(httpClient, beatURI, registry, *systemBeat); err != nil {
-			log.Warnf("Failed to discover beat type at %s: %v", beatURI, err)
+	go func() {
+		slog.Info("Starting exporter", "address", *listenAddress)
+		var err error
+		if *tlsCertFile != "" && *tlsKeyFile != "" {
+			err = server.ListenAndServeTLS(*tlsCertFile, *tlsKeyFile)
+		} else {
+			err = server.ListenAndServe()
 		}
-	}
-
-	// Setup Prometheus metrics endpoint
-	http.Handle(*metricsPath, promhttp.HandlerFor(registry, promhttp.HandlerOpts{
-		ErrorLog:           log.New(),
-		DisableCompression: false,
-		ErrorHandling:      promhttp.ContinueOnError,
-	}))
-
-	http.HandleFunc("/", indexHandler(*metricsPath))
-
-	// Start the server
-	go startHTTPServer(*listenAddress, *tlsCertFile, *tlsKeyFile)
+		if err != nil && err != http.ErrServerClosed {
+			slog.Error("HTTP server error", "error", err)
+			os.Exit(1)
+		}
+	}()
 
 	<-stopCh
-	log.Info("Exporter stopped gracefully")
+	slog.Info("Shutting down gracefully...")
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := server.Shutdown(ctx); err != nil {
+		slog.Error("Server shutdown error", "error", err)
+	}
+	slog.Info("Exporter stopped gracefully")
 }
 
 // discoverBeatType attempts to load Beat info from a given URI and registers the collector if successful.
+// It clones the HTTP client for unix:// targets so the shared client Transport is never mutated.
 func discoverBeatType(client *http.Client, beatURI string, registry *prometheus.Registry, systemBeat bool) error {
 	beatURL, err := url.Parse(beatURI)
 	if err != nil {
 		return fmt.Errorf("failed to parse beat URI: %w", err)
 	}
 
-	// Adjust transport for Unix socket
+	beatClient := client
+	// Adjust transport for Unix socket without mutating the shared client.
 	if beatURL.Scheme == "unix" {
 		unixPath := beatURL.Path
 		beatURL.Scheme = "http"
 		beatURL.Host = "localhost"
 		beatURL.Path = ""
-		client.Transport = &http.Transport{
-			DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
-				return (&net.Dialer{}).DialContext(ctx, "unix", unixPath)
-			},
+		// Clone base transport to avoid sharing mutable state.
+		baseTransport := http.DefaultTransport.(*http.Transport).Clone()
+		if client.Transport != nil {
+			if tr, ok := client.Transport.(*http.Transport); ok {
+				baseTransport = tr.Clone()
+			}
+		}
+		baseTransport.DialContext = func(ctx context.Context, _, _ string) (net.Conn, error) {
+			return (&net.Dialer{}).DialContext(ctx, "unix", unixPath)
+		}
+		beatClient = &http.Client{
+			Timeout:   client.Timeout,
+			Transport: baseTransport,
 		}
 	}
 
-	log.Infof("Trying to discover beat type at %s", beatURI)
-	beatInfo, err := loadBeatType(client, *beatURL)
+	slog.Info("Trying to discover beat type", "uri", beatURI)
+	beatInfo, err := loadBeatType(beatClient, *beatURL)
 	if err != nil {
 		return err // If it fails, return the error
 	}
 
 	// Register the collector for the discovered Beat
-	mainCollector := collector.NewMainCollector(client, beatURL, serviceName, beatInfo, systemBeat)
+	mainCollector := collector.NewMainCollector(beatClient, beatURL, serviceName, beatInfo, systemBeat)
 	registry.MustRegister(mainCollector)
 
-	log.Infof("Beat type loaded successfully from %s", beatURI)
+	slog.Info("Beat type loaded successfully", "uri", beatURI)
 	return nil
 }
 
@@ -145,6 +193,13 @@ func indexHandler(metricsPath string) http.HandlerFunc {
 	}
 }
 
+// healthHandler reports liveness for orchestration probes.
+func healthHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte("ok\n"))
+}
+
 // loadBeatType fetches the Beat info from the provided URL.
 func loadBeatType(client *http.Client, url url.URL) (*collector.BeatInfo, error) {
 	response, err := client.Get(url.String())
@@ -167,20 +222,22 @@ func loadBeatType(client *http.Client, url url.URL) (*collector.BeatInfo, error)
 		return nil, err
 	}
 
-	log.Infof("Target beat loaded: %v", beatInfo)
+	slog.Info("Target beat loaded", "beatInfo", beatInfo)
 	return &beatInfo, nil
 }
 
 // startHTTPServer starts the HTTP server for Prometheus metrics.
 func startHTTPServer(listenAddress, tlsCertFile, tlsKeyFile string) {
-	log.Infof("Starting exporter at %s", listenAddress)
+	slog.Info("Starting exporter", "address", listenAddress)
 	if tlsCertFile != "" && tlsKeyFile != "" {
 		if err := http.ListenAndServeTLS(listenAddress, tlsCertFile, tlsKeyFile, nil); err != nil {
-			log.Fatalf("TLS server error: %v", err)
+			slog.Error("TLS server error", "error", err)
+			os.Exit(1)
 		}
 	} else {
 		if err := http.ListenAndServe(listenAddress, nil); err != nil {
-			log.Fatalf("HTTP server error: %v", err)
+			slog.Error("HTTP server error", "error", err)
+			os.Exit(1)
 		}
 	}
 }

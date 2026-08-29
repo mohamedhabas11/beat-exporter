@@ -3,13 +3,13 @@ package collector
 import (
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"net/url"
 	"regexp"
 
 	"github.com/prometheus/client_golang/prometheus"
-	log "github.com/sirupsen/logrus"
+	"log/slog"
 )
 
 type mainCollector struct {
@@ -26,7 +26,7 @@ type mainCollector struct {
 }
 
 // HackfixRegex regex to replace JSON part
-var HackfixRegex = regexp.MustCompile("\"time\":(\\d+)") // replaces time:123 to time.ms:123, only filebeat has different naming of time metric
+var HackfixRegex = regexp.MustCompile(`"time"\s*:\s*(\d+)`) // replaces time:123 to time.ms:123, only filebeat has different naming of time metric; whitespace-tolerant
 
 // NewMainCollector constructor
 func NewMainCollector(client *http.Client, url *url.URL, name string, beatInfo *BeatInfo, systemBeat bool) prometheus.Collector {
@@ -61,6 +61,8 @@ func NewMainCollector(client *http.Client, url *url.URL, name string, beatInfo *
 	beat.Collectors["filebeat"] = NewFilebeatCollector(beatInfo, beat.Stats)
 	beat.Collectors["metricbeat"] = NewMetricbeatCollector(beatInfo, beat.Stats)
 	beat.Collectors["auditd"] = NewAuditdCollector(beatInfo, beat.Stats)
+	beat.Collectors["heartbeat"] = NewHeartbeatCollector(beatInfo, beat.Stats)
+	beat.Collectors["winlogbeat"] = NewWinlogbeatCollector(beatInfo, beat.Stats)
 
 	return beat
 }
@@ -89,6 +91,10 @@ func (b *mainCollector) Describe(ch chan<- *prometheus.Desc) {
 		b.Collectors["registrar"].Describe(ch)
 	case "metricbeat":
 		b.Collectors["metricbeat"].Describe(ch)
+	case "heartbeat":
+		b.Collectors["heartbeat"].Describe(ch)
+	case "winlogbeat":
+		b.Collectors["winlogbeat"].Describe(ch)
 	}
 }
 
@@ -97,7 +103,7 @@ func (b *mainCollector) Collect(ch chan<- prometheus.Metric) {
 	err := b.fetchStatsEndpoint()
 	if err != nil {
 		ch <- prometheus.MustNewConstMetric(b.targetUp, prometheus.GaugeValue, float64(0)) // Set target down
-		log.Errorf("Failed getting /stats endpoint of target: " + err.Error())
+		slog.Error("Failed getting /stats endpoint of target", "error", err)
 		return
 	}
 
@@ -123,6 +129,10 @@ func (b *mainCollector) Collect(ch chan<- prometheus.Metric) {
 		b.Collectors["registrar"].Collect(ch)
 	case "metricbeat":
 		b.Collectors["metricbeat"].Collect(ch)
+	case "heartbeat":
+		b.Collectors["heartbeat"].Collect(ch)
+	case "winlogbeat":
+		b.Collectors["winlogbeat"].Collect(ch)
 	}
 }
 
@@ -130,14 +140,14 @@ func (b *mainCollector) Collect(ch chan<- prometheus.Metric) {
 func (b *mainCollector) fetchStatsEndpoint() error {
 	response, err := b.client.Get(b.beatURL.String() + "/stats")
 	if err != nil {
-		log.Errorf("Could not fetch stats endpoint of target: %v", b.beatURL.String())
+		slog.Error("Could not fetch stats endpoint of target", "url", b.beatURL.String())
 		return err
 	}
 	defer response.Body.Close()
 
-	bodyBytes, err := ioutil.ReadAll(response.Body)
+	bodyBytes, err := io.ReadAll(response.Body)
 	if err != nil {
-		log.Error("Can't read body of response")
+		slog.Error("Can't read body of response")
 		return err
 	}
 
@@ -146,7 +156,7 @@ func (b *mainCollector) fetchStatsEndpoint() error {
 
 	err = json.Unmarshal(bodyBytes, &b.Stats)
 	if err != nil {
-		log.Error("Could not parse JSON response for target")
+		slog.Error("Could not parse JSON response for target")
 		return err
 	}
 

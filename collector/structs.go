@@ -4,7 +4,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 )
 
-//BeatInfo beat info json structure
+// BeatInfo beat info json structure
 type BeatInfo struct {
 	Beat     string `json:"beat"`
 	Hostname string `json:"hostname"`
@@ -13,7 +13,7 @@ type BeatInfo struct {
 	Version  string `json:"version"`
 }
 
-//Stats stats endpoint json structure
+// Stats stats endpoint json structure
 type Stats struct {
 	System     System      `json:"system"`
 	Beat       BeatStats   `json:"beat"`
@@ -22,6 +22,8 @@ type Stats struct {
 	Filebeat   Filebeat    `json:"filebeat"`
 	Metricbeat Metricbeat  `json:"metricbeat"`
 	Auditd     AuditdStats `json:"auditd"`
+	Heartbeat  Heartbeat   `json:"heartbeat"`
+	Winlogbeat Winlogbeat  `json:"winlogbeat"`
 }
 
 type exportedMetrics []struct {

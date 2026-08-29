@@ -4,7 +4,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 )
 
-//Registrar json structure
+// Registrar json structure
 type Registrar struct {
 	Writes struct {
 		Fail    float64 `json:"fail"`

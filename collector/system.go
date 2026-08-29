@@ -4,14 +4,14 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 )
 
-//CPUStats json structure
+// CPUStats json structure
 type CPUStats struct {
 	M1  float64 `json:"1"`
 	M5  float64 `json:"5"`
 	M15 float64 `json:"15"`
 }
 
-//System json structure
+// System json structure
 type System struct {
 	CPU struct {
 		Cores int64 `json:"cores"`

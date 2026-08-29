@@ -1,0 +1,12 @@
+name: default
+nodes:
+  - id: start
+    kind: channel
+  - id: test
+    kind: test
+    run: "go test ./..."
+  - id: done
+    kind: channel
+edges:
+  - {from: start, to: test}
+  - {from: test, to: done}
